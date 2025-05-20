@@ -1,202 +1,193 @@
-## Vessel Analysis
+# Vessel Analysis Modular
 
-A command-line tool to analyze 3D vessel masks by skeletonizing them, building a graph representation, extracting vessel segments, and computing a variety of geometric and tortuosity metrics.
-
----
-
-## Overview
-
-`VESSEL_METRICS.py` processes an input 3D vessel mask through the following main stages:
-
-1. **Loading & Preprocessing**
-2. **Skeletonization & Distance Mapping**
-3. **Graph Construction & Pruning**
-4. **Connected Component Analysis**
-5. **General Metrics Computation**
-6. **Structural Metrics Computation**
-7. **Segment Extraction & Tortuosity Analysis**
-8. **Results Saving & Aggregation**
-
-Each stage is described in detail below.
+`vessel_analysis_modular.py` is a command-line tool for analyzing 3D vessel masks. It skeletonizes the mask, builds a graph representation, extracts vessel segments, and computes various morphometric and tortuosity metrics.
 
 ---
 
-## 1. Loading & Preprocessing
+## Features
 
-* **Input formats**: NIfTI (`.nii`, `.nii.gz`) or NumPy (`.npy`, `.npz`).
-* **Thresholding**: Voxel values > 0 are considered foreground.
-* **Small object removal**: Uses `skimage.morphology.remove_small_objects` to eliminate connected components smaller than `--min_size` voxels (default 32).
+* **Skeletonization** of a 3D binary vessel mask
+* **Graph construction** from skeleton voxels
+* **Pruning** of triangular loops
+* **Connected component** analysis
+* **Extraction of vessel segments** via shortest paths from key root points
+* **Computation of metrics** per component and per segment:
 
-```python
-arr = mask_data > 0
-clean = remove_small_objects(arr, min_size)
-```
-
----
-
-## 2. Skeletonization & Distance Mapping
-
-* **Skeletonize**: Computes a 3D medial axis of the cleaned mask via `skimage.morphology.skeletonize`.
-* **Distance transform**: Computes Euclidean distance from each foreground voxel to the nearest background using `scipy.ndimage.distance_transform_edt`. The resulting `dist_map` provides per-voxel radius estimates.
-
-```python
-skel = skeletonize(clean)
-dist_map = distance_transform_edt(clean)
-```
+  * **General metrics**: total length, bifurcation count & density, volume
+  * **Structural metrics**: number of loops, abnormal-degree nodes
+  * **Fractal analysis**: fractal dimension via box-counting
+  * **Lacunarity**: spatial heterogeneity measure
+  * **Tortuosity metrics**: geodesic vs chord length, curvature-based measures
+* **Saving outputs**: reconstructed skeletons, segment masks, CSV tables
+* **Aggregation** of per-component metrics into a whole-mask summary
 
 ---
 
-## 3. Graph Construction & Pruning
+## Installation
 
-### 3.1 Build Graph
-
-* Each skeleton voxel becomes a graph node at its (x, y, z) coordinate.
-* Edges connect 6-neighbors (faces) and also diagonal neighbors (within one voxel) for full connectivity making it 26-connectivity.
-* Edge **weight** = Euclidean distance between voxel centers (1.0 for face neighbors, √2 or √3 for diagonals).
-
-```python
-def build_graph(skel):
-    for each voxel in skel:
-        for neighbor in 26-neighborhood:
-            if neighbor is also skeleton:
-                G.add_edge(voxel, neighbor, weight=distance)
-```
-
-### 3.2 Prune Triangles
-
-* Detects all simple cycles of length 3 (triangles) via `networkx.cycle_basis`. They appear in occurrence of the bifurctions for how 26-connectivity build edges.
-* In each triangle, removes the heaviest edge (largest weight) to eliminate spurious loops. 
-```python
-for cycle in cycle_basis(G):
-    if len(cycle)==3:
-        remove heaviest edge
-```
-
----
-
-## 4. Connected Component Analysis
-
-* Splits the pruned graph `G` into connected components (`networkx.connected_components`).
-* For each component:
-
-  * **Reconstruct mask**: Grows spheres at each skeleton node using `dist_map` radii, reassembling the original vessel thickness.
-  * Stores this as a NIfTI image (`nibabel.Nifti1Image`).
-
-```python
-for node in Gc.nodes():
-    r = dist_map[node]
-    paint sphere of radius r
-```
-
----
-
-## 5. General Metrics Computation
-
-For each component, computes:
-
-* **Total length**: Sum of all edge weights in the component.
-* **Number of bifurcations**: Nodes with degree ≥ 3.
-* **Bifurcation density**: (# of bifurcations) / (total length).
-* **Volume**: Approximates each edge as a cylinder: π·(avg\_radius)²·length.
-* **Fractal dimension**: 3D box-counting on the set of skeleton coordinates using `sklearn.linear_model.LinearRegression` on log(counts) vs log(1/box\_size).
-* **Lacunarity**: Variance-to-mean² of point counts in a grid of boxes covering the component.
-
-```python
-num_bif = sum(degree>=3)
-total_len = sum(weights)
-volume = sum(pi*r_avg^2*length)
-```
-
----
-
-## 6. Structural Metrics Computation
-
-Calculates:
-
-* **Number of loops**: Count of independent cycles via `len(cycle_basis(Gc))`.
-* **Abnormal nodes**: Nodes with degree > 3.
-
----
-
-## 7. Segment Extraction & Tortuosity Analysis
-
-### 7.1 Root Selection
-
-Identifies three roots per component:
-
-1. **Largest endpoint**: Skeleton endpoint (degree==1) with max diameter (2·radius).
-2. **Second-largest endpoint**.
-3. **Largest bifurcation**: Node with degree ≥ 3 and max diameter.
-
-### 7.2 Shortest-path segments
-
-For each root, computes shortest paths to all other endpoints using `networkx.shortest_path` (Dijkstra on weights).
-
-### 7.3 Tortuosity metrics per segment
-
-For each segment path of voxel coords:
-
-* **Geodesic length**: Sum of Euclidean distances along the path.
-* **Average diameter**: Mean of 2·dist\_map at each point.
-* **Spline-based tortuosity**: Fits a cubic B-spline to the 3D points (`scipy.interpolate.splprep`), reparametrizes by arc length, then computes:
-
-  * **Arc length** & **Chord length**
-  * **Curvature** κ(s) = ‖r'(s)×r''(s)‖ / ‖r'(s)‖³
-  * **Weighted integrals**: ∫κ(s)/n(s) ds and ∫\[κ(s)/n(s)]² ds, where n(s) are per-point counts to down-weight heavily-traveled points.
-  * **RMS curvature** and **fit RMSE**.
-
-```python
-tck,u = splprep(pts.T)
-evaluate derivs, compute curvature, trapz integrals
-```
-
-### 7.4 Aggregation
-
-* **Per-root aggregated curvature**: length-weighted mean of each root’s segment curvatures:
-
-  $C_root = \frac{\sum_{seg}(mean_curv_seg \times L_geo_seg)}{\sum_{seg} L_geo_seg}$
-
-Stored alongside general metrics.
-
----
-
-## 8. Results Saving & Aggregation
-
-### Per-component
-
-Under `<output_folder>/Conn_comp_<i>/`:
-
-* `General_metrics.csv` containing all requested general and aggregated tortuosity metrics.
-* `<i>_skeleton.nii.gz`: Reconstructed skeleton mask.
-* `Segments/`: Subfolders for each root, each containing per-segment `Segment_metrics.csv` and optional `Segment.nii.gz` masks.
-
-### Whole-mask
-
-After all components are saved, runs `aggregate_segmentation_metrics`, which:
-
-* Reads each component’s `General_metrics.csv`
-* Sums general fields across components
-* Computes overall length-weighted averages for each of the six tortuosity metrics, **only** including components where those values exist
-* Writes `segmentation_metrics.csv` in `<output_folder>` with all sums, averages, `grand_total_length`, and `num_components`.
-
----
-
-## Quick Start
+1. Clone this repository or download `vessel_analysis_modular.py`.
+2. Ensure you have Python 3.7+.
+3. Install dependencies:
 
 ```bash
-python VESSEL_METRICS.py my_vessels.nii.gz \
-    --min_size 64 \
-    --metrics total_length volume num_loops spline_mean_curvature \
-    --output_folder ./results \
-    --no_segment_masks
-```
-
-This produces:
-
-```
-./results/Conn_comp_1/...
-./results/Conn_comp_2/...
-./results/segmentation_metrics.csv
+pip install nibabel numpy pandas networkx scikit-image scipy scikit-learn
 ```
 
 ---
+
+## Usage
+
+```bash
+python vessel_analysis_modular.py <input_path> [--min_size INT] [--metrics METRIC [METRIC ...]] [--output_folder PATH] [--no_segment_masks]
+```
+
+### Arguments
+
+* `<input_path>`: Path to the vessel mask file. Supported formats:
+
+  * NIfTI: `.nii`, `.nii.gz`
+  * NumPy: `.npy`, `.npz`
+
+* `--min_size INT`: *(optional, default: 32)* Minimum voxel count for connected components. Small objects are removed before skeletonization.
+
+* `--metrics METRIC [METRIC ...]`: *(optional)* List of metrics to compute. If not specified, **all** metrics are computed. Valid options:
+
+  * `total_length`, `num_bifurcations`, `bifurcation_density`, `volume`
+  * `fractal_dimension`, `lacunarity`
+  * `geodesic_length`, `avg_diameter`
+  * `spline_arc_length`, `spline_chord_length`, `spline_mean_curvature`, `spline_mean_square_curvature`, `spline_rms_curvature`, `arc_over_chord`, `fit_rmse`
+  * `num_loops`, `num_abnormal_degree_nodes`
+
+* `--output_folder PATH`: *(optional, default: `./VESSEL_METRICS`)* Directory to save results and intermediate files.
+
+* `--no_segment_masks`: Skip generation and saving of 3D segment masks (saves disk space and speeds up processing).
+
+---
+
+## Output Structure
+
+After running, `<output_folder>` will contain:
+
+```
+output_folder/
+├── Conn_comp_1/
+│   ├── Conn_comp_1_skeleton.nii.gz    # Skeleton mask for component 1
+│   └── Segments/
+│       ├── Largest endpoint root/
+│       │   ├── Segment_1/
+│       │   │   ├── Segment_metrics.csv
+│       │   │   └── Segment.nii.gz
+│       │   └── ...
+│       ├── Second largest endpoint root/
+│       └── Largest bifurcation root/
+├── Conn_comp_2/
+│   └── ...
+├── all_components_metrics.csv         # Table of metrics for each component
+└── Whole_mask_metrics.csv             # Aggregated whole-mask statistics
+```
+
+---
+
+## Metric Descriptions & Computation Details
+
+### 1. Skeletonization & Graph Construction
+
+* **Skeletonization**: Uses `skimage.morphology.skeletonize` to reduce the binary mask to a one-voxel-thick centerline.
+* **Distance map**: Computes Euclidean distance transform (`scipy.ndimage.distance_transform_edt`) on the cleaned mask to estimate vessel radius at each voxel.
+* **Graph nodes**: Each skeleton voxel becomes a node, storing its 3D coordinate.
+* **Graph edges**: Connects nodes within a 3×3×3 neighborhood. Edge weight is the Euclidean distance between node coordinates.
+* **Pruning**: Detects all triangular cycles (3-cycles) via `networkx.cycle_basis` and removes the heaviest edge in each triangle to eliminate spurious loops.
+
+### 2. Connected Components
+
+* After pruning, identifies connected components in the graph (`nx.connected_components`). Each component is processed independently.
+
+### 3. General Metrics
+
+* **total\_length**: Sum of all edge weights within the component graph.
+* **num\_bifurcations**: Number of nodes with graph degree ≥ 3.
+* **bifurcation\_density**: `num_bifurcations / total_length` (avoids division by zero).
+* **volume**: Approximates vessel volume by treating each edge as a cylinder:
+
+  $\text{volume} = \sum_{(u,v)} \pi \left( \frac{r_u + r_v}{2} \right)^2 \cdot d_{uv},$
+
+  where \$r\_u\$, \$r\_v\$ are radii from the distance map, and \$d\_{uv}\$ is the edge length.
+
+### 4. Structural Metrics
+
+* **num\_loops**: Number of independent cycles (using `len(nx.cycle_basis)`).
+* **num\_abnormal\_degree\_nodes**: Nodes with degree > 3, indicating possible artifacts.
+
+### 5. Fractal Dimension
+
+* **Box-counting method**: Defines logarithmically spaced box sizes. For each box size \$\epsilon\$, counts non-empty boxes covering the 3D point cloud of skeleton nodes. Performs linear regression on
+
+  $\log(N(\epsilon)) \sim D \cdot \log(1/\epsilon)$
+
+  to estimate fractal dimension \$D\$.
+
+### 6. Lacunarity
+
+* Builds a regular grid of cubic boxes of size \$L = \tfrac{\max(\Delta x,\Delta y,\Delta z)}{10}\$. Computes point counts per box, then
+
+  $\Lambda = \frac{\mathrm{Var}(n)}{[\mathrm{Mean}(n)]^2} + 1.$
+
+### 7. Segment Extraction & Tortuosity
+
+* **Roots**: For each component, identifies three root nodes:
+
+  1. Endpoint (degree=1) with largest diameter
+  2. Endpoint with second-largest diameter
+  3. Bifurcation node (degree≥3) with largest diameter (fallback to first endpoint)
+
+* **Shortest-path segments**: For each root, computes `nx.shortest_path` to all other endpoints. These paths define vessel segments.
+
+* **Segment metrics**:
+
+  * **geodesic\_length**: Sum of Euclidean distances between successive nodes along the segment.
+  * **avg\_diameter**: Mean of \$2r\$ over segment nodes, where \$r\$ from distance map.
+  * **Spline tortuosity**:
+
+    1. Fit a cubic B-spline (\$s\$-parameterized) through segment points (`scipy.interpolate.splprep`).
+    2. Reparameterize by arc length to ensure uniform sampling.
+    3. Compute first (\$d\mathbf{x}/ds\$) and second (\$d^2\mathbf{x}/ds^2\$) derivatives.
+    4. Curvature: \$\kappa(s) = | \mathbf{x}'(s) \times \mathbf{x}''(s) | / |\mathbf{x}'(s)|^3\$.
+    5. Optionally weight curvature by inverse node frequency to adjust for shared paths.
+    6. Metrics:
+
+       * **spline\_arc\_length**: Total arc length \$\int ds\$.
+       * **spline\_chord\_length**: Straight distance between endpoints of the spline.
+       * **arc\_over\_chord**: Ratio of spline arc length to chord length.
+       * **spline\_mean\_curvature**: \$\int \kappa(s)/n(s) , ds\$.
+       * **spline\_mean\_square\_curvature**: \$\int \[\kappa(s)]^2/\[n(s)]^2 , ds\$.
+       * **spline\_rms\_curvature**: \$\sqrt{\dfrac{1}{L}\int \[\kappa(s)]^2/\[n(s)]^2 , ds }\$.
+       * **fit\_rmse**: Root-mean-square error between spline evaluation at original points and those points.
+
+* **Aggregation**: Computes length-weighted averages of curvature metrics across all segments from each root.
+
+---
+
+## Examples
+
+```bash
+# All metrics with default settings
+python vessel_analysis_modular.py data/vessel_mask.nii.gz
+
+# Subset metrics, custom output folder, no masks
+python vessel_analysis_modular.py data/mask.npy \
+    --metrics total_length volume fractal_dimension \
+    --no_segment_masks --output_folder results/
+
+# Higher min component size
+python vessel_analysis_modular.py data/mask.nii --min_size 100
+```
+
+---
+
+## Developer Notes
+
+* Graph pruning removes spurious triangular loops by edge-weight.
+* Connected components ensure isolated vessels are analyzed individually.
+* Interpolated counts in tortuosity down-weight high-frequency branching regions.
+
+Contributions and issue reports welcome.
