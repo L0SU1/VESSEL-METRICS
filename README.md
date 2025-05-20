@@ -26,8 +26,7 @@
 ## Installation
 
 1. Clone this repository or download `VESSEL_METRICS.py`.
-2. Ensure you have Python 3.7+.
-3. Install dependencies (check requirements.txt).
+2. Install dependencies (check requirements.txt).
 
 ---
 
