@@ -27,11 +27,7 @@
 
 1. Clone this repository or download `VESSEL_METRICS.py`.
 2. Ensure you have Python 3.7+.
-3. Install dependencies:
-
-```bash
-pip install nibabel numpy pandas networkx scikit-image scipy scikit-learn
-```
+3. Install dependencies (check requirements.txt).
 
 ---
 
