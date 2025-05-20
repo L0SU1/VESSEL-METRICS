@@ -92,78 +92,78 @@ output_folder/
 
 ### 1. Skeletonization & Graph Construction
 
-* **Skeletonization**: Uses `skimage.morphology.skeletonize` to reduce the binary mask to a one-voxel-thick centerline.
-* **Distance map**: Computes Euclidean distance transform (`scipy.ndimage.distance_transform_edt`) on the cleaned mask to estimate vessel radius at each voxel.
-* **Graph nodes**: Each skeleton voxel becomes a node, storing its 3D coordinate.
-* **Graph edges**: Connects nodes within a 3×3×3 neighborhood. Edge weight is the Euclidean distance between node coordinates.
-* **Pruning**: Detects all triangular cycles (3-cycles) via `networkx.cycle_basis` and removes the heaviest edge in each triangle to eliminate spurious loops.
+* **Skeletonization**: uses `skimage.morphology.skeletonize` to reduce the binary mask to a one-voxel-thick centerline.
+* **Distance map**: computes Euclidean distance transform (`scipy.ndimage.distance_transform_edt`) on the cleaned mask to estimate vessel radius at each voxel.
+* **Graph nodes**: each skeleton voxel becomes a node with its 3D coordinate.
+* **Graph edges**: connect nodes within a 3×3×3 neighborhood; weight is the Euclidean distance between nodes.
+* **Pruning**: detects triangular cycles (`networkx.cycle_basis`) and removes the heaviest edge in each triangle.
 
 ### 2. Connected Components
 
-* After pruning, identifies connected components in the graph (`nx.connected_components`). Each component is processed independently.
+* Identifies connected components in the pruned graph (`nx.connected_components`). Each component is analyzed separately.
 
 ### 3. General Metrics
 
-* **total\_length**: Sum of all edge weights within the component graph.
-* **num\_bifurcations**: Number of nodes with graph degree ≥ 3.
-* **bifurcation\_density**: `num_bifurcations / total_length` (avoids division by zero).
-* **volume**: Approximates vessel volume by treating each edge as a cylinder:
+* **total\_length**: sum of all edge weights in the component.
+* **num\_bifurcations**: count of nodes with degree ≥ 3.
+* **bifurcation\_density**: `num_bifurcations / total_length`.
+* **volume**: approximates vessel volume by treating each edge as a cylinder:
 
   $\text{volume} = \sum_{(u,v)} \pi \left( \frac{r_u + r_v}{2} \right)^2 \cdot d_{uv},$
 
-  where \$r\_u\$, \$r\_v\$ are radii from the distance map, and \$d\_{uv}\$ is the edge length.
+  where \$r\_u, r\_v\$ are radii from the distance map and \$d\_{uv}\$ is edge length.
 
 ### 4. Structural Metrics
 
-* **num\_loops**: Number of independent cycles (using `len(nx.cycle_basis)`).
-* **num\_abnormal\_degree\_nodes**: Nodes with degree > 3, indicating possible artifacts.
+* **num\_loops**: number of independent cycles (`len(nx.cycle_basis)`).
+* **num\_abnormal\_degree\_nodes**: nodes with degree > 3.
 
 ### 5. Fractal Dimension
 
-* **Box-counting method**: Defines logarithmically spaced box sizes. For each box size \$\epsilon\$, counts non-empty boxes covering the 3D point cloud of skeleton nodes. Performs linear regression on
+* **Box-counting**: uses logarithmically spaced box sizes, counts non-empty boxes for each size, and fits:
 
-  $\log(N(\epsilon)) \sim D \cdot \log(1/\epsilon)$
+  $\log(N(\epsilon)) = D \cdot \log(1/\epsilon) + c.$
 
-  to estimate fractal dimension \$D\$.
+  The slope \$D\$ is the fractal dimension.
 
 ### 6. Lacunarity
 
-* Builds a regular grid of cubic boxes of size \$L = \tfrac{\max(\Delta x,\Delta y,\Delta z)}{10}\$. Computes point counts per box, then
+* Builds a grid of cubic boxes of size \$L = \max(\Delta x,\Delta y,\Delta z)/10\$. Computes point counts per box and:
 
   $\Lambda = \frac{\mathrm{Var}(n)}{[\mathrm{Mean}(n)]^2} + 1.$
 
 ### 7. Segment Extraction & Tortuosity
 
-* **Roots**: For each component, identifies three root nodes:
+* **Roots**: selects three roots per component:
 
   1. Endpoint (degree=1) with largest diameter
   2. Endpoint with second-largest diameter
-  3. Bifurcation node (degree≥3) with largest diameter (fallback to first endpoint)
+  3. Bifurcation node (degree≥3) with largest diameter (fallback to root 1)
 
-* **Shortest-path segments**: For each root, computes `nx.shortest_path` to all other endpoints. These paths define vessel segments.
+* **Segments**: shortest paths (`nx.shortest_path`) from each root to other endpoints.
 
 * **Segment metrics**:
 
-  * **geodesic\_length**: Sum of Euclidean distances between successive nodes along the segment.
-  * **avg\_diameter**: Mean of \$2r\$ over segment nodes, where \$r\$ from distance map.
+  * **geodesic\_length**: sum of consecutive node distances.
+  * **avg\_diameter**: average \$2r\$ along nodes.
   * **Spline tortuosity**:
 
-    1. Fit a cubic B-spline (\$s\$-parameterized) through segment points (`scipy.interpolate.splprep`).
-    2. Reparameterize by arc length to ensure uniform sampling.
-    3. Compute first (\$d\mathbf{x}/ds\$) and second (\$d^2\mathbf{x}/ds^2\$) derivatives.
-    4. Curvature: \$\kappa(s) = | \mathbf{x}'(s) \times \mathbf{x}''(s) | / |\mathbf{x}'(s)|^3\$.
-    5. Optionally weight curvature by inverse node frequency to adjust for shared paths.
+    1. Fit cubic B-spline (`splprep`) to segment points.
+    2. Reparameterize by arc length for uniform sampling.
+    3. Compute first and second derivatives wrt arc length.
+    4. Curvature: \$\kappa(s)=|x'(s)\times x''(s)|/|x'(s)|^3\$.
+    5. Optionally weight by node frequency.
     6. Metrics:
 
-       * **spline\_arc\_length**: Total arc length \$\int ds\$.
-       * **spline\_chord\_length**: Straight distance between endpoints of the spline.
-       * **arc\_over\_chord**: Ratio of spline arc length to chord length.
+       * **spline\_arc\_length**: \$\int ds\$.
+       * **spline\_chord\_length**: straight distance endpoints.
+       * **arc\_over\_chord**: ratio of arc to chord.
        * **spline\_mean\_curvature**: \$\int \kappa(s)/n(s) , ds\$.
        * **spline\_mean\_square\_curvature**: \$\int \[\kappa(s)]^2/\[n(s)]^2 , ds\$.
-       * **spline\_rms\_curvature**: \$\sqrt{\dfrac{1}{L}\int \[\kappa(s)]^2/\[n(s)]^2 , ds }\$.
-       * **fit\_rmse**: Root-mean-square error between spline evaluation at original points and those points.
+       * **spline\_rms\_curvature**: \$\sqrt{\frac{1}{L}\int \[\kappa(s)]^2/\[n(s)]^2 , ds}\$.
+       * **fit\_rmse**: RMSE between spline and original points.
 
-* **Aggregation**: Computes length-weighted averages of curvature metrics across all segments from each root.
+* **Aggregation**: computes length-weighted averages of curvature metrics for each root.
 
 ---
 
@@ -182,12 +182,3 @@ python vessel_analysis_modular.py data/mask.npy \
 python vessel_analysis_modular.py data/mask.nii --min_size 100
 ```
 
----
-
-## Developer Notes
-
-* Graph pruning removes spurious triangular loops by edge-weight.
-* Connected components ensure isolated vessels are analyzed individually.
-* Interpolated counts in tortuosity down-weight high-frequency branching regions.
-
-Contributions and issue reports welcome.
