@@ -1,6 +1,6 @@
-# Vessel Analysis Modular
+# Vessel Analysis
 
-`vessel_analysis_modular.py` is a command-line tool for analyzing 3D vessel masks. It skeletonizes the mask, builds a graph representation, extracts vessel segments, and computes various morphometric and tortuosity metrics.
+`VESSEL_METRICS.py` is a command-line tool for analyzing 3D vessel masks. It skeletonizes the mask, builds a graph representation, extracts vessel segments, and computes various morphometric and tortuosity metrics.
 
 ---
 
@@ -25,7 +25,7 @@
 
 ## Installation
 
-1. Clone this repository or download `vessel_analysis_modular.py`.
+1. Clone this repository or download `VESSEL_METRICS.py`.
 2. Ensure you have Python 3.7+.
 3. Install dependencies:
 
@@ -38,7 +38,7 @@ pip install nibabel numpy pandas networkx scikit-image scipy scikit-learn
 ## Usage
 
 ```bash
-python vessel_analysis_modular.py <input_path> [--min_size INT] [--metrics METRIC [METRIC ...]] [--output_folder PATH] [--no_segment_masks]
+python VESSEL_METRICS.py <input_path> [--min_size INT] [--metrics METRIC [METRIC ...]] [--output_folder PATH] [--no_segment_masks]
 ```
 
 ### Arguments
@@ -96,7 +96,7 @@ output_folder/
 * **Distance map**: computes Euclidean distance transform (`scipy.ndimage.distance_transform_edt`) on the cleaned mask to estimate vessel radius at each voxel.
 * **Graph nodes**: each skeleton voxel becomes a node with its 3D coordinate.
 * **Graph edges**: connect nodes within a 3×3×3 neighborhood; weight is the Euclidean distance between nodes.
-* **Pruning**: detects triangular cycles (`networkx.cycle_basis`) and removes the heaviest edge in each triangle.
+* **Pruning**: detects triangular cycles (`networkx.cycle_basis`) and removes the heaviest edge in each triangle. They appear in occurrence of the bifurctions for how 26-connectivity build edges.
 
 ### 2. Connected Components
 
