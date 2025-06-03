@@ -33,7 +33,7 @@
 
 ## Usage
 
-```bash
+bash
 python VESSEL_METRICS.py <mask_path> <atlas_path> [--metrics METRIC [METRIC ...]] [--output_folder PATH] [--no_segment_masks] [--no_conn_comp_masks]
 
 
