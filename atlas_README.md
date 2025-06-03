@@ -145,49 +145,32 @@ After running the tool, the specified `output_folder` will contain the following
 
 * **Segments**: shortest paths (`nx.shortest_path`) from each root to other endpoints.
 
-* ## Segment metrics
+  **Segment metrics**:
 
-- **geodesic_length**: sum of consecutive node distances.  
-- **avg_diameter**: average \(2r\) along nodes.  
-- **Spline tortuosity**:
+  * **geodesic\_length**: sum of consecutive node distances.
+  * **avg\_diameter**: average \$2r\$ along nodes.
+  * **Spline tortuosity**:
 
-  1. Fit cubic B-spline (`splprep`) to segment points.
-  2. Reparameterize by arc length for uniform sampling.
-  3. Compute first and second derivatives w.r.t. arc length.
-  4. Curvature is defined as:  
-     \[
-     \kappa(s) = \frac{|x'(s) \times x''(s)|}{|x'(s)|^3}
-     \]
-  5. Optionally weight curvature by node frequency:
-     
-     The weight function \( n(s) \) represents the frequency or count of how often each original point appears. Since the spline parameterization re-samples points along the curve, \( n(s) \) is obtained by interpolating the original counts \( n(x) \) to the new spline parameter \( s \).
+    1. Fit cubic B-spline (splprep) to segment points.
+    2. Reparameterize by arc length for uniform sampling.
+    3. Compute first and second derivatives wrt arc length.
+    4. Curvature: \$\kappa(s)=|x'(s)\times x''(s)|/|x'(s)|^3\$.
+    5. Optionally weight by node frequency.
+    6. Metrics:
 
-     This weighting helps to adjust the curvature measure by down-weighting regions where points are densely clustered, preventing bias due to uneven sampling density along the curve.
+       * **spline\_arc\_length**: \$\int ds\$.
+       * **spline\_chord\_length**: straight distance endpoints.
+       * **arc\_over\_chord**: ratio of arc to chord.
+       * **spline\_mean\_curvature**: \$\int \kappa(s)/n(s) , ds\$.
+       * **spline\_mean\_square\_curvature**: \$\int \[\kappa(s)]^2/\[n(s)]^2 , ds\$.
+       * **spline\_rms\_curvature**: \$\sqrt{\frac{1}{L}\int \[\kappa(s)]^2/\[n(s)]^2 , ds}\$.
+       * **fit\_rmse**: RMSE between spline and original points.
 
-  6. Metrics calculated from the spline and curvature include:
+       ### Explanation of weighting function \( n(s) \)
 
-     - **spline_arc_length**: total length of the spline curve \(\int ds\)
-     - **spline_chord_length**: straight-line distance between the endpoints
-     - **arc_over_chord**: ratio of spline arc length to chord length
-     - **spline_mean_curvature**: weighted average curvature, \(\int \frac{\kappa(s)}{n(s)} \, ds\)
-     - **spline_mean_square_curvature**: weighted average of squared curvature, \(\int \frac{\kappa(s)^2}{n(s)^2} \, ds\)
-     - **spline_rms_curvature**: root mean square curvature,  
-       \[
-       \sqrt{\frac{1}{L} \int \frac{\kappa(s)^2}{n(s)^2} \, ds}
-       \]
-     - **fit_rmse**: root mean squared error between the spline curve and original points
+       - The original data points along the segment may have different sampling densities or frequencies (some points might be  more densely sampled in creating segments).
+       - \( n(x) \) is the count or frequency that represents how many time the original node appears in the segments.
+       - When reparameterizing the spline by arc length \( s \), the counts \( n(x) \) are interpolated to obtain \( n(s) \).
+       - This weighting ensures that curvature metrics reflect the true geometry of the curve rather than artifacts of uneven sampling.
 
----
-
-### Explanation of weighting function \( n(s) \)
-
-- The original data points along the segment may have different sampling densities or frequencies (some points might be recorded multiple times or be more densely sampled).
-- \( n(x) \) is the count or frequency of each original node.
-- When reparameterizing the spline by arc length \( s \), the counts \( n(x) \) are interpolated to obtain \( n(s) \).
-- Curvature \(\kappa(s)\) is then weighted by dividing by \( n(s) \), reducing the influence of regions with higher point density.
-- This weighting ensures that curvature metrics reflect the true geometry of the curve rather than artifacts of uneven sampling.
-
----
-
-* **Aggregation**: computes length-weighted averages of curvature metrics for each root.
 
