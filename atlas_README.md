@@ -1,6 +1,6 @@
 # Vessel Analysis
 
-`VESSEL_METRICS.py` is a command-line tool for analyzing 3D vessel masks. It skeletonizes the mask, builds a graph representation, extracts vessel segments, and computes various morphometric and tortuosity metrics. **All metrics are computed regionally via atlas-based parcellation, enabling spatially-resolved vessel characterization.**
+`VESSEL_METRICS.py` is a command-line tool for analyzing 3D vessel masks. It skeletonizes the mask, builds a graph representation, extracts vessel segments, and computes various morphometric and tortuosity metrics. **All metrics are computed per connected component and aggregated regionally via atlas-based parcellation, enabling spatially-resolved vessel characterization.**
 
 ---
 
