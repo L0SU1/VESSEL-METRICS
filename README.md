@@ -1,85 +1,96 @@
-# Vessel Analysis
+# Atlas Vessel Analysis
 
-`VESSEL_METRICS.py` is a command-line tool for analyzing 3D vessel masks. It skeletonizes the mask, builds a graph representation, extracts vessel segments, and computes various morphometric and tortuosity metrics.
+`ATLAS_VESSEL_METRICS.py` is a command-line tool for analyzing 3D vessel masks. It skeletonizes the mask, builds a graph representation, extracts vessel segments, and computes various morphometric and tortuosity metrics. **All metrics are computed per connected component and aggregated regionally via atlas-based parcellation, enabling spatially-resolved vessel characterization.**
 
 ---
-
 ## Features
 
+* **Atlas-based regional analysis**: vessel metrics computed within atlas-defined regions
+  - Includes automatic **affine registration** of a labeled atlas to the input mask using **SimpleITK**:
+    - Mutual Information as the registration metric
+    - Gradient Descent optimizer with physical shift scaling
+    - Centered affine initialization
+    - Nearest-neighbor resampling to preserve labels
 * **Skeletonization** of a 3D binary vessel mask
 * **Graph construction** from skeleton voxels
 * **Pruning** of triangular loops
 * **Connected component** analysis
 * **Extraction of vessel segments** via shortest paths from key root points
 * **Computation of metrics** per component and per segment:
-
-  * **General metrics**: total length, bifurcation count & density, volume
-  * **Structural metrics**: number of loops, abnormal-degree nodes
-  * **Fractal analysis**: fractal dimension via box-counting
-  * **Lacunarity**: spatial heterogeneity measure
-  * **Tortuosity metrics**: geodesic vs chord length, curvature-based measures
+  - **General metrics**: total length, bifurcation count & density, volume
+  - **Structural metrics**: number of loops, abnormal-degree nodes
+  - **Fractal analysis**: fractal dimension via box-counting
+  - **Lacunarity**: spatial heterogeneity measure
+  - **Tortuosity metrics**: geodesic vs chord length, curvature-based measures
 * **Saving outputs**: reconstructed skeletons, segment masks, CSV tables
-* **Aggregation** of per-component metrics into a whole-mask summary
+* **Aggregation** of per-region and per-component metrics into detailed and summary CSV reports
 
 ---
 
 ## Installation
 
-1. Clone this repository or download `VESSEL_METRICS.py`.
-2. Install dependencies (check requirements.txt).
+1. Clone this repository or download `ATLAS_VESSEL_METRICS.py`.
+2. Install dependencies (check `atlas_requirements.txt`).
 
 ---
 
 ## Usage
 
-```bash
-python VESSEL_METRICS.py <input_path> [--min_size INT] [--metrics METRIC [METRIC ...]] [--output_folder PATH] [--no_segment_masks]
-```
+-bash
+python VESSEL_METRICS.py <mask_path> <atlas_path> [--metrics METRIC [METRIC ...]] [--output_folder PATH] [--no_segment_masks] [--no_conn_comp_masks]
+
+---
 
 ### Arguments
 
-* `<input_path>`: Path to the vessel mask file. Supported formats:
+- `<mask_path>`: Path to the vessel mask file. Supported formats:
+  - NIfTI: `.nii`, `.nii.gz`
+  - NumPy: `.npy`, `.npz`
 
-  * NIfTI: `.nii`, `.nii.gz`
-  * NumPy: `.npy`, `.npz`
+- `<atlas_path>`: Path to the atlas file (NIfTI `.nii` or `.nii.gz`) used for regional parcellation
 
-* `--min_size INT`: *(optional, default: 32)* Minimum voxel count for connected components. Small objects are removed before skeletonization.
+- `--metrics METRIC [METRIC ...]` *(optional)*: List of metrics to compute. If omitted, all are computed. Valid metrics:
+  - `total_length`, `num_bifurcations`, `bifurcation_density`, `volume`
+  - `fractal_dimension`, `lacunarity`
+  - `geodesic_length`, `avg_diameter`
+  - `spline_arc_length`, `spline_chord_length`, `spline_mean_curvature`
+  - `spline_mean_square_curvature`, `spline_rms_curvature`, `arc_over_chord`, `fit_rmse`
+  - `num_loops`, `num_abnormal_degree_nodes`
 
-* `--metrics METRIC [METRIC ...]`: *(optional)* List of metrics to compute. If not specified, **all** metrics are computed. Valid options:
+- `--output_folder PATH` *(optional, default: `./ATLAS_VESSEL_METRICS`)*: Directory to save results and intermediate files
 
-  * `total_length`, `num_bifurcations`, `bifurcation_density`, `volume`
-  * `fractal_dimension`, `lacunarity`
-  * `geodesic_length`, `avg_diameter`
-  * `spline_arc_length`, `spline_chord_length`, `spline_mean_curvature`, `spline_mean_square_curvature`, `spline_rms_curvature`, `arc_over_chord`, `fit_rmse`
-  * `num_loops`, `num_abnormal_degree_nodes`
+- `--no_segment_masks`: Disable saving of 3D segment masks (saves disk space)
 
-* `--output_folder PATH`: *(optional, default: `./VESSEL_METRICS`)* Directory to save results and intermediate files.
-
-* `--no_segment_masks`: Skip generation and saving of 3D segment masks (saves disk space and speeds up processing).
+- `--no_conn_comp_masks`: Disable saving of connected component reconstructed skeletons
 
 ---
 
 ## Output Structure
 
-After running, `<output_folder>` will contain:
+After running the tool, the specified `output_folder` will contain the following structure:
 
-```
-output_folder/
-├── Conn_comp_1/
-│   ├── Conn_comp_1_skeleton.nii.gz    # Skeleton mask for component 1
-│   └── Segments/
-│       ├── Largest endpoint root/
-│       │   ├── Segment_1/
-│       │   │   ├── Segment_metrics.csv
-│       │   │   └── Segment.nii.gz
-│       │   └── ...
-│       ├── Second largest endpoint root/
-│       └── Largest bifurcation root/
-├── Conn_comp_2/
-│   └── ...
-├── all_components_metrics.csv         # Table of metrics for each component
-└── Whole_mask_metrics.csv             # Aggregated whole-mask statistics
-```
+- `Region_1/`
+  - `Conn_comp_1/`
+    - `Conn_comp_1_skeleton.nii.gz` – Skeleton mask for component 1
+    - `Segments/`
+      - `Largest endpoint root/`
+        - `Segment_1/`
+          - `Segment_metrics.csv`
+          - `Segment.nii.gz`
+        - *(other segments...)*
+      - `Second largest endpoint root/`
+      - `Largest bifurcation root/`
+  - `Conn_comp_2/`
+  - *(other components...)*
+- `Region_2/`
+  - *(same structure as above...)*
+- `all_components_by_region.csv` – Detailed metrics per component grouped by region
+- `region_summary.csv` – Aggregated summary of each region, including weighted tortuosity metrics
+
+**Notes:**
+- Segment masks are saved unless `--no_segment_masks` is specified.
+- Component skeletons are saved unless `--no_conn_comp_masks` is specified.
+- The CSV outputs contain geometric, structural, and tortuosity metrics. Tortuosity values in `region_summary.csv` are weighted by total vessel length.
 
 ---
 
@@ -137,13 +148,13 @@ output_folder/
 
 * **Segments**: shortest paths (`nx.shortest_path`) from each root to other endpoints.
 
-* **Segment metrics**:
+  **Segment metrics**:
 
   * **geodesic\_length**: sum of consecutive node distances.
   * **avg\_diameter**: average \$2r\$ along nodes.
   * **Spline tortuosity**:
 
-    1. Fit cubic B-spline (`splprep`) to segment points.
+    1. Fit cubic B-spline (splprep) to segment points.
     2. Reparameterize by arc length for uniform sampling.
     3. Compute first and second derivatives wrt arc length.
     4. Curvature: \$\kappa(s)=|x'(s)\times x''(s)|/|x'(s)|^3\$.
@@ -158,22 +169,34 @@ output_folder/
        * **spline\_rms\_curvature**: \$\sqrt{\frac{1}{L}\int \[\kappa(s)]^2/\[n(s)]^2 , ds}\$.
        * **fit\_rmse**: RMSE between spline and original points.
 
-* **Aggregation**: computes length-weighted averages of curvature metrics for each root.
+       ### Explanation of weighting function \( n(s) \)
 
----
+       - The original data points along the segment may have different sampling densities or frequencies (some points might be  more densely sampled in creating segments).
+       - \( n(x) \) is the count or frequency that represents how many time the original node appears in the segments.
+       - When reparameterizing the spline by arc length \( s \), the counts \( n(x) \) are interpolated to obtain \( n(s) \).
+       - This weighting ensures that curvature metrics reflect the true geometry of the curve rather than artifacts of uneven sampling.
 
-## Examples
+## Results Saving and Reporting
 
-```bash
-# All metrics with default settings
-python vessel_analysis_modular.py data/vessel_mask.nii.gz
+### Key Features
 
-# Subset metrics, custom output folder, no masks
-python vessel_analysis_modular.py data/mask.npy \
-    --metrics total_length volume fractal_dimension \
-    --no_segment_masks --output_folder results/
+- **Output Organization**:
+  - Results are saved in a hierarchical folder structure by region and component.
+  - Each connected component is stored in its own subdirectory, optionally including:
+    - Skeletonized volume (`Conn_comp_<index>_skeleton.nii.gz`)
+    - Segment subfolders with:
+      - Segment-level metric CSVs
+      - Optional segment masks as `.nii.gz` files
 
-# Higher min component size
-python vessel_analysis_modular.py data/mask.nii --min_size 100
-```
+- **Metrics Export**:
+  - Two main CSV files are generated:
+    1. **`all_components_by_region.csv`**: Detailed per-component metrics across regions.
+    2. **`region_summary.csv`**: Region-level summaries, aggregating:
+       - Total length, bifurcations, volume, loops, abnormal nodes
+       - Weighted averages of tortuosity metrics
+       
 
+- **Tortuosity Metrics**:
+  - For up to three root paths per component:
+    - Mean and mean-square curvature are aggregated and stored.
+    - Segment-level tortuosity is computed and saved per path.
