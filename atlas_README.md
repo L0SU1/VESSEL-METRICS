@@ -3,22 +3,25 @@
 `VESSEL_METRICS.py` is a command-line tool for analyzing 3D vessel masks. It skeletonizes the mask, builds a graph representation, extracts vessel segments, and computes various morphometric and tortuosity metrics. **All metrics are computed per connected component and aggregated regionally via atlas-based parcellation, enabling spatially-resolved vessel characterization.**
 
 ---
-
 ## Features
 
 * **Atlas-based regional analysis**: vessel metrics computed within atlas-defined regions
+  - Includes automatic **affine registration** of a labeled atlas to the input mask using **SimpleITK**:
+    - Mutual Information as the registration metric
+    - Gradient Descent optimizer with physical shift scaling
+    - Centered affine initialization
+    - Nearest-neighbor resampling to preserve labels
 * **Skeletonization** of a 3D binary vessel mask
 * **Graph construction** from skeleton voxels
 * **Pruning** of triangular loops
 * **Connected component** analysis
 * **Extraction of vessel segments** via shortest paths from key root points
 * **Computation of metrics** per component and per segment:
-
-  * **General metrics**: total length, bifurcation count & density, volume
-  * **Structural metrics**: number of loops, abnormal-degree nodes
-  * **Fractal analysis**: fractal dimension via box-counting
-  * **Lacunarity**: spatial heterogeneity measure
-  * **Tortuosity metrics**: geodesic vs chord length, curvature-based measures
+  - **General metrics**: total length, bifurcation count & density, volume
+  - **Structural metrics**: number of loops, abnormal-degree nodes
+  - **Fractal analysis**: fractal dimension via box-counting
+  - **Lacunarity**: spatial heterogeneity measure
+  - **Tortuosity metrics**: geodesic vs chord length, curvature-based measures
 * **Saving outputs**: reconstructed skeletons, segment masks, CSV tables
 * **Aggregation** of per-region and per-component metrics into detailed and summary CSV reports
 
@@ -26,14 +29,14 @@
 
 ## Installation
 
-1. Clone this repository or download `VESSEL_METRICS.py`.
-2. Install dependencies (check `requirements.txt`).
+1. Clone this repository or download `ATLAS_VESSEL_METRICS.py`.
+2. Install dependencies (check `atlas_requirements.txt`).
 
 ---
 
 ## Usage
 
-bash
+-bash
 python VESSEL_METRICS.py <mask_path> <atlas_path> [--metrics METRIC [METRIC ...]] [--output_folder PATH] [--no_segment_masks] [--no_conn_comp_masks]
 
 ---
@@ -173,4 +176,27 @@ After running the tool, the specified `output_folder` will contain the following
        - When reparameterizing the spline by arc length \( s \), the counts \( n(x) \) are interpolated to obtain \( n(s) \).
        - This weighting ensures that curvature metrics reflect the true geometry of the curve rather than artifacts of uneven sampling.
 
+## Results Saving and Reporting
 
+### Key Features
+
+- **Output Organization**:
+  - Results are saved in a hierarchical folder structure by region and component.
+  - Each connected component is stored in its own subdirectory, optionally including:
+    - Skeletonized volume (`Conn_comp_<index>_skeleton.nii.gz`)
+    - Segment subfolders with:
+      - Segment-level metric CSVs
+      - Optional segment masks as `.nii.gz` files
+
+- **Metrics Export**:
+  - Two main CSV files are generated:
+    1. **`all_components_by_region.csv`**: Detailed per-component metrics across regions.
+    2. **`region_summary.csv`**: Region-level summaries, aggregating:
+       - Total length, bifurcations, volume, loops, abnormal nodes
+       - Weighted averages of tortuosity metrics
+       
+
+- **Tortuosity Metrics**:
+  - For up to three root paths per component:
+    - Mean and mean-square curvature are aggregated and stored.
+    - Segment-level tortuosity is computed and saved per path.
