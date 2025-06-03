@@ -36,7 +36,7 @@
 bash
 python VESSEL_METRICS.py <mask_path> <atlas_path> [--metrics METRIC [METRIC ...]] [--output_folder PATH] [--no_segment_masks] [--no_conn_comp_masks]
 
-
+---
 
 ### Arguments
 
@@ -60,6 +60,7 @@ python VESSEL_METRICS.py <mask_path> <atlas_path> [--metrics METRIC [METRIC ...]
 
 - `--no_conn_comp_masks`: Disable saving of connected component reconstructed skeletons
 
+---
 
 ## Output Structure
 
@@ -87,3 +88,83 @@ After running the tool, the specified `output_folder` will contain the following
 - Segment masks are saved unless `--no_segment_masks` is specified.
 - Component skeletons are saved unless `--no_conn_comp_masks` is specified.
 - The CSV outputs contain geometric, structural, and tortuosity metrics. Tortuosity values in `region_summary.csv` are weighted by total vessel length.
+
+---
+
+## Metric Descriptions & Computation Details
+
+### 1. Skeletonization & Graph Construction
+
+* **Skeletonization**: uses `skimage.morphology.skeletonize` to reduce the binary mask to a one-voxel-thick centerline.
+* **Distance map**: computes Euclidean distance transform (`scipy.ndimage.distance_transform_edt`) on the cleaned mask to estimate vessel radius at each voxel.
+* **Graph nodes**: each skeleton voxel becomes a node with its 3D coordinate.
+* **Graph edges**: connect nodes within a 3×3×3 neighborhood; weight is the Euclidean distance between nodes.
+* **Pruning**: detects triangular cycles (`networkx.cycle_basis`) and removes the heaviest edge in each triangle. They appear in occurrence of the bifurctions for how 26-connectivity build edges.
+
+### 2. Connected Components
+
+* Identifies connected components in the pruned graph (`nx.connected_components`). Each component is analyzed separately.
+
+### 3. General Metrics
+
+* **total\_length**: sum of all edge weights in the component.
+* **num\_bifurcations**: count of nodes with degree ≥ 3.
+* **bifurcation\_density**: `num_bifurcations / total_length`.
+* **volume**: approximates vessel volume by treating each edge as a cylinder:
+
+  $\text{volume} = \sum_{(u,v)} \pi \left( \frac{r_u + r_v}{2} \right)^2 \cdot d_{uv},$
+
+  where \$r\_u, r\_v\$ are radii from the distance map and \$d\_{uv}\$ is edge length.
+
+### 4. Structural Metrics
+
+* **num\_loops**: number of independent cycles (`len(nx.cycle_basis)`).
+* **num\_abnormal\_degree\_nodes**: nodes with degree > 3.
+
+### 5. Fractal Dimension
+
+* **Box-counting**: uses logarithmically spaced box sizes, counts non-empty boxes for each size, and fits:
+
+  $\log(N(\epsilon)) = D \cdot \log(1/\epsilon) + c.$
+
+  The slope \$D\$ is the fractal dimension.
+
+### 6. Lacunarity
+
+* Builds a grid of cubic boxes of size \$L = \max(\Delta x,\Delta y,\Delta z)/10\$. Computes point counts per box and:
+
+  $\Lambda = \frac{\mathrm{Var}(n)}{[\mathrm{Mean}(n)]^2} + 1.$
+
+### 7. Segment Extraction & Tortuosity
+
+* **Roots**: selects three roots per component:
+
+  1. Endpoint (degree=1) with largest diameter
+  2. Endpoint with second-largest diameter
+  3. Bifurcation node (degree≥3) with largest diameter (fallback to root 1)
+
+* **Segments**: shortest paths (`nx.shortest_path`) from each root to other endpoints.
+
+* **Segment metrics**:
+
+  * **geodesic\_length**: sum of consecutive node distances.
+  * **avg\_diameter**: average \$2r\$ along nodes.
+  * **Spline tortuosity**:
+
+    1. Fit cubic B-spline (`splprep`) to segment points.
+    2. Reparameterize by arc length for uniform sampling.
+    3. Compute first and second derivatives wrt arc length.
+    4. Curvature: \$\kappa(s)=|x'(s)\times x''(s)|/|x'(s)|^3\$.
+    5. Optionally weight by node frequency.
+    6. Metrics:
+
+       * **spline\_arc\_length**: \$\int ds\$.
+       * **spline\_chord\_length**: straight distance endpoints.
+       * **arc\_over\_chord**: ratio of arc to chord.
+       * **spline\_mean\_curvature**: \$\int \kappa(s)/n(s) , ds\$.
+       * **spline\_mean\_square\_curvature**: \$\int \[\kappa(s)]^2/\[n(s)]^2 , ds\$.
+       * **spline\_rms\_curvature**: \$\sqrt{\frac{1}{L}\int \[\kappa(s)]^2/\[n(s)]^2 , ds}\$.
+       * **fit\_rmse**: RMSE between spline and original points.
+
+* **Aggregation**: computes length-weighted averages of curvature metrics for each root.
+
