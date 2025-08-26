@@ -173,14 +173,13 @@ output_folder/
     3. Compute first and second derivatives w.r.t. arc length.
     4. Curvature: 
        $\kappa(s) = \frac{\lVert \mathbf{x}'(s) \times \mathbf{x}''(s) \rVert}{\lVert \mathbf{x}'(s) \rVert^3}$
-    5. **Weighted node frequency**: points appearing multiple times are down-weighted  
-       by their occurrence $n(s)$:
-       \[
-       \kappa_w(s) = \frac{\kappa(s)}{n(s)}, \quad
-       \kappa_w^2(s) = \frac{\kappa(s)^2}{n(s)^2}
-       \]
-       
-       This prevents overcounting in segments sharing nodes.
+    5. **Weighted node frequency**: points appearing multiple times are down-weighted by their occurrence $n(s)$:
+
+      weighted curvature: $\kappa_w(s) = \kappa(s) / n(s)$  
+      weighted squared curvature: $\kappa_w^2(s) = \kappa(s)^2 / n(s)^2$
+   
+      This prevents overcounting in segments sharing nodes.
+
     6. Metrics:
 
        * **spline_arc_length**: $\int ds$
