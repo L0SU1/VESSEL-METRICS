@@ -1,61 +1,82 @@
 # Vessel Analysis
 
-`VESSEL_METRICS.py` is a command-line tool for analyzing 3D vessel masks. It skeletonizes the mask, builds a graph representation, extracts vessel segments, and computes various morphometric and tortuosity metrics.
+`VESSEL_METRICS.py` is a command-line tool for analyzing 3D vessel masks.  
+It skeletonizes the mask, builds a graph representation, extracts vessel segments,  
+and computes various morphometric and tortuosity metrics.
 
 ---
 
 ## Features
 
-* **Skeletonization** of a 3D binary vessel mask
-* **Graph construction** from skeleton voxels
-* **Pruning** of triangular loops
-* **Connected component** analysis
-* **Extraction of vessel segments** via shortest paths from key root points
-* **Computation of metrics** per component and per segment:
-
-  * **General metrics**: total length, bifurcation count & density, volume
-  * **Structural metrics**: number of loops, abnormal-degree nodes
-  * **Fractal analysis**: fractal dimension via box-counting
-  * **Lacunarity**: spatial heterogeneity measure
-  * **Tortuosity metrics**: geodesic vs chord length, curvature-based measures
-* **Saving outputs**: reconstructed skeletons, segment masks, CSV tables
-* **Aggregation** of per-component metrics into a whole-mask summary
+* **Skeletonization** of a 3D binary vessel mask  
+* **Graph construction** from skeleton voxels  
+* **Pruning** of triangular loops  
+* **Connected component** analysis  
+* **Extraction of vessel segments** via shortest paths from 3 different key root points  
+* **Computation of metrics** per component and per segment:  
+  * **General metrics**: total length, bifurcation count & density, volume, average diameter  
+  * **Structural metrics**: number of loops, number of abnormal-degree nodes  
+  * **Fractal analysis**: fractal dimension via box-counting  
+  * **Lacunarity**: spatial heterogeneity measure  
+  * **Tortuosity metrics**: curvature-based measures  
+* **Saving outputs**: reconstructed skeletons, segment masks, CSV tables  
+* **Aggregation** of per-component metrics into a whole-mask summary, with optional additional focus on the *K* largest connected components  
 
 ---
 
 ## Installation
 
-1. Clone this repository or download `VESSEL_METRICS.py`.
-2. Install dependencies (check requirements.txt).
+1. Clone this repository or download `VESSEL_METRICS.py`.  
+2. Install dependencies (see `requirements.txt`).  
 
 ---
 
 ## Usage
 
 ```bash
-python VESSEL_METRICS.py <input_path> [--min_size INT] [--metrics METRIC [METRIC ...]] [--output_folder PATH] [--no_segment_masks]
+python VESSEL_METRICS.py <input_path> 
+    [--metrics METRIC [METRIC ...]] 
+    [--topK NUMBER] 
+    [--output_folder PATH] 
+    [--no_conn_comp_masks] 
+    [--no_segment_masks]
+
 ```
 
-### Arguments
+---
 
-* `<input_path>`: Path to the vessel mask file. Supported formats:
+## Arguments
 
-  * NIfTI: `.nii`, `.nii.gz`
-  * NumPy: `.npy`, `.npz`
+### Positional
 
-* `--min_size INT`: *(optional, default: 32)* Minimum voxel count for connected components. Small objects are removed before skeletonization.
+- **`<input_path>`**  
+  Path to the vessel mask file. Supported formats:  
+  - NIfTI: `.nii`, `.nii.gz`  
+  - NumPy: `.npy`, `.npz`  
 
-* `--metrics METRIC [METRIC ...]`: *(optional)* List of metrics to compute. If not specified, **all** metrics are computed. Valid options:
+### Optional
 
-  * `total_length`, `num_bifurcations`, `bifurcation_density`, `volume`
-  * `fractal_dimension`, `lacunarity`
-  * `geodesic_length`, `avg_diameter`
-  * `spline_arc_length`, `spline_chord_length`, `spline_mean_curvature`, `spline_mean_square_curvature`, `spline_rms_curvature`, `arc_over_chord`, `fit_rmse`
-  * `num_loops`, `num_abnormal_degree_nodes`
+- **`--metrics METRIC [METRIC ...]`**  
+  List of metrics to compute.  
+  If not specified, **all metrics** are computed.  
+  Valid options:  
+  - `total_length`, `num_bifurcations`, `bifurcation_density`, `volume`  
+  - `fractal_dimension`, `lacunarity`  
+  - `geodesic_length`, `avg_diameter`  
+  - `spline_mean_curvature`, `spline_mean_square_curvature`, `spline_rms_curvature`  
+  - `num_loops`, `num_abnormal_degree_nodes`, `mean_loop_length`, `max_loop_length`  
 
-* `--output_folder PATH`: *(optional, default: `./VESSEL_METRICS`)* Directory to save results and intermediate files.
+- **`--topK INT`** _(default: None)_  
+  Use only the **top-K largest connected components** (by total length) when computing aggregated summary metrics.  
 
-* `--no_segment_masks`: Skip generation and saving of 3D segment masks (saves disk space and speeds up processing).
+- **`--output_folder PATH`** _(default: `./VESSEL_METRICS`)_  
+  Directory to save results and intermediate files.  
+
+- **`--no_conn_comp_masks`**  
+  Disable saving connected-component-level masks (saves disk space).  
+
+- **`--no_segment_masks`**  
+  Disable saving per-segment masks (saves disk space and speeds up processing).  
 
 ---
 
@@ -99,9 +120,11 @@ output_folder/
 
 ### 3. General Metrics
 
-* **total\_length**: sum of all edge weights in the component.
-* **num\_bifurcations**: count of nodes with degree ≥ 3.
-* **bifurcation\_density**: `num_bifurcations / total_length`.
+* **total_length**: sum of all edge weights in the component.
+* **num_bifurcations**: count of nodes with degree ≥ 3.
+* **bifurcation_density**: `num_bifurcations / total_length`.
+* **average_diameter**: length-weighted mean of the diameters along all edges in the connected component.  
+  Each edge’s diameter is estimated as twice the average radius from the distance map at the two endpoints of the edge.  
 * **volume**: approximates vessel volume by treating each edge as a cylinder:
 
   $\text{volume} = \sum_{(u,v)} \pi \left( \frac{r_u + r_v}{2} \right)^2 \cdot d_{uv},$
@@ -110,8 +133,11 @@ output_folder/
 
 ### 4. Structural Metrics
 
-* **num\_loops**: number of independent cycles (`len(nx.cycle_basis)`).
-* **num\_abnormal\_degree\_nodes**: nodes with degree > 3.
+* **num_loops**: number of independent cycles in the connected component (`len(nx.cycle_basis)`).
+* **num_abnormal_degree_nodes**: nodes with degree greater than 3.
+* **mean_loop_length**: average number of nodes in the cycles of the component.
+* **max_loop_length**: maximum number of nodes in any cycle of the component.
+
 
 ### 5. Fractal Dimension
 
@@ -172,8 +198,5 @@ python vessel_analysis_modular.py data/vessel_mask.nii.gz
 python vessel_analysis_modular.py data/mask.npy \
     --metrics total_length volume fractal_dimension \
     --no_segment_masks --output_folder results/
-
-# Higher min component size
-python vessel_analysis_modular.py data/mask.nii --min_size 100
 ```
 
