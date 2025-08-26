@@ -165,34 +165,34 @@ output_folder/
 * **Segment metrics**:
 
   * **geodesic_length**: sum of consecutive node distances.
-  * **avg_diameter**: average \(2r\) along nodes.
+  * **avg_diameter**: average $2r$ along nodes.
   * **Spline tortuosity**:
 
     1. Fit a cubic B-spline (`splprep`) to segment points.
     2. Reparameterize by arc length for uniform sampling.
     3. Compute first and second derivatives w.r.t. arc length.
     4. Curvature: 
-       \[
-       \kappa(s) = \frac{\lVert \mathbf{x}'(s) \times \mathbf{x}''(s) \rVert}{\lVert \mathbf{x}'(s) \rVert^3}
-       \]
+       $\kappa(s) = \frac{\lVert \mathbf{x}'(s) \times \mathbf{x}''(s) \rVert}{\lVert \mathbf{x}'(s) \rVert^3}$
     5. **Weighted node frequency**: points appearing multiple times are down-weighted  
-       by their occurrence \(n(s)\):
+       by their occurrence $n(s)$:
        \[
        \kappa_w(s) = \frac{\kappa(s)}{n(s)}, \quad
        \kappa_w^2(s) = \frac{\kappa(s)^2}{n(s)^2}
        \]
+       
        This prevents overcounting in segments sharing nodes.
     6. Metrics:
 
-       * **spline_arc_length**: \(\int ds\)
+       * **spline_arc_length**: $\int ds$
        * **spline_chord_length**: straight-line distance between endpoints
-       * **arc_over_chord**: ratio of arc length to chord length
-       * **spline_mean_curvature**: \(\int \frac{\kappa(s)}{n(s)} \, ds\)
-       * **spline_mean_square_curvature**: \(\int \frac{\kappa(s)^2}{n(s)^2} \, ds\)
-       * **spline_rms_curvature**: \(\sqrt{\frac{1}{L} \int \frac{\kappa(s)^2}{n(s)^2} \, ds}\)
+       * **arc_over_chord**: $\text{arc length} / \text{chord length}$
+       * **spline_mean_curvature**: $\int \frac{\kappa(s)}{n(s)} \, ds$
+       * **spline_mean_square_curvature**: $\int \frac{\kappa(s)^2}{n(s)^2} \, ds$
+       * **spline_rms_curvature**: $\sqrt{\frac{1}{L} \int \frac{\kappa(s)^2}{n(s)^2} \, ds}$
        * **fit_rmse**: RMSE between spline and original points
 
 * **Aggregation**: computes length-weighted averages of curvature metrics for each root.
+
 
 
 
