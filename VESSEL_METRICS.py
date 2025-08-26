@@ -5,19 +5,18 @@ A command-line tool to analyze 3D vessel masks by skeletonizing,
 building a graph, extracting segments, and computing only requested metrics.
 
 USAGE:
-    python vessel_analysis_modular.py <input_path> [--min_size INT] [--metrics METRIC [METRIC ...]] [--output_folder PATH]
+    python vessel_analysis_modular.py <input_path>[--metrics METRIC [METRIC ...]] [--output_folder PATH]
 
 ARGUMENTS:
-    input_path       Path to the NIfTI vessel mask (.nii or .nii.gz) or to the .npy.
-    --min_size       (optional) Minimum size (in voxels) to keep connected components
-                     after cleaning small objects. Default is 32.
-    --metrics        (optional) List of metrics to compute/display. Options include:
-                     total_length, bifurcation_density, volume, fractal_dimension,
-                     lacunarity, geodesic_length, avg_diameter,
-                     spline_arc_length, spline_chord_length, mean_curvature,
-                     mean_square_curvature, rms_curvature, arc_over_chord, rmse.
-                     Default is all metrics.
-    --output_folder  (optional) Path to save results. Default is './VESSEL METRICS'.
+    input_path      Path to the NIfTI vessel mask (.nii or .nii.gz) or to the .npy.
+    --metrics       (optional) List of metrics to compute/display. Options include:   
+                    'total_length', 'num_bifurcations', 'bifurcation_density', 'volume',
+                    'fractal_dimension', 'lacunarity', 'geodesic_length', 'avg_diameter',
+                    'spline_mean_curvature','spline_rms_curvature',
+                    'num_loops', 'num_abnormal_degree_nodes',
+                    'mean_loop_length', 'max_loop_length'
+                    Default is all metrics.
+    --output_folder (optional) Path to save results. Default is './VESSEL METRICS'.
 """
 import os
 import glob
@@ -27,8 +26,8 @@ import nibabel as nib
 import numpy as np
 import pandas as pd
 import networkx as nx
-from skimage.morphology import skeletonize, remove_small_objects
-from scipy.ndimage import distance_transform_edt, label as ndi_label
+from skimage.morphology import skeletonize
+from scipy.ndimage import distance_transform_edt
 from scipy.interpolate import splprep, splev, interp1d
 from sklearn.linear_model import LinearRegression
 from collections import defaultdict
@@ -57,17 +56,17 @@ def compute_tortuosity_metrics(points, smoothing=0, n_samples=500, counts=None):
 
     Returns:
       dict of tortuosity metrics:
-          - spline_arc_length
-          - spline_chord_length
-          - spline_mean_curvature       (weighted)
-          - spline_mean_square_curvature (weighted)
-          - spline_rms_curvature        (weighted)
-          - arc_over_chord
-          - fit_rmse
+          - spline_arc_length             (computed but not output metric)
+          - spline_chord_length           (computed but not output metric)
+          - spline_mean_curvature         (weighted)
+          - spline_mean_square_curvature  (weighted)
+          - spline_rms_curvature          (computed but not output metric)
+          - arc_over_chord                (computed but not output metric)
+          - fit_rmse                      (computed but not output metric)
     """
     pts = np.asarray(points)
     if pts.shape[0] < 4:
-        # Not enough points to fit a cubic B-spline
+        # Not enough points to fit a cubic B-spline. It has to be more than 3
         nan_dict = {k: np.nan for k in [
             'spline_arc_length','spline_chord_length',
             'spline_mean_curvature','spline_mean_square_curvature',
@@ -85,12 +84,12 @@ def compute_tortuosity_metrics(points, smoothing=0, n_samples=500, counts=None):
     s_cum    = np.cumsum(ds) - ds[0]
     arc_len  = s_cum[-1]
 
-    # 3) Reparameterize by arc length → uniform s samples
-    u_of_s   = interp1d(s_cum, u_fine, kind='linear',
+    # 3) Reparameterize by arc length -> uniform s samples
+    u_of_s    = interp1d(s_cum, u_fine, kind='linear',
                         bounds_error=False, fill_value=(0,1))
-    s_uniform= np.linspace(0, arc_len, n_samples)
-    u_uniform= u_of_s(s_uniform)
-    pts_u    = np.array(splev(u_uniform, tck)).T
+    s_uniform = np.linspace(0, arc_len, n_samples)
+    u_uniform = u_of_s(s_uniform)
+    pts_u     = np.array(splev(u_uniform, tck)).T
 
     # 4) Compute derivatives wrt s
     dt  = s_uniform[1] - s_uniform[0]
@@ -111,8 +110,8 @@ def compute_tortuosity_metrics(points, smoothing=0, n_samples=500, counts=None):
     # 6) Compute the standard curvature κ(s)
     cross_vec = np.cross(d1, d2)
     speed     = np.linalg.norm(d1, axis=1)
-    # add epsilon to avoid div‐by‐zero in speed**3
-    curvature = np.linalg.norm(cross_vec, axis=1) / (speed**3 + 1e-10)
+    epsilon   = 1e-10
+    curvature = np.linalg.norm(cross_vec, axis=1) / (speed**3 + epsilon)
 
     # 7) Form the weighted curvature and its square
     curv_w    = curvature / n_s
@@ -123,19 +122,19 @@ def compute_tortuosity_metrics(points, smoothing=0, n_samples=500, counts=None):
     mean_sq_curv    = np.trapz(curv2_w, s_uniform)
     rms_curv        = np.sqrt(mean_sq_curv / arc_len) if arc_len>0 else 0
 
-    # 9) Chord length & fit RMSE
-    chord_len = np.linalg.norm(pts_u[-1] - pts_u[0])
+    # 9) Chord length & fit RMSE (remember that these won't be used)
+    chord_len   = np.linalg.norm(pts_u[-1] - pts_u[0])
     spline_at_u = np.array(splev(u, tck)).T
     fit_rmse    = np.sqrt(np.mean(np.sum((spline_at_u - pts)**2, axis=1)))
 
     return {
-        'spline_arc_length':           arc_len,
-        'spline_chord_length':         chord_len,
-        'spline_mean_curvature':       mean_curv,
-        'spline_mean_square_curvature':mean_sq_curv,
-        'spline_rms_curvature':        rms_curv,
-        'arc_over_chord':              (arc_len / chord_len) if chord_len>0 else np.inf,
-        'fit_rmse':                    fit_rmse
+        'spline_arc_length':            arc_len,
+        'spline_chord_length':          chord_len,
+        'spline_mean_curvature':        mean_curv,
+        'spline_mean_square_curvature': mean_sq_curv,
+        'spline_rms_curvature':         rms_curv,
+        'arc_over_chord':               (arc_len / chord_len) if chord_len>0 else np.inf,
+        'fit_rmse':                     fit_rmse
     }
 
 
@@ -150,9 +149,9 @@ def fractal_dimension(points, box_sizes=None):
         return np.nan
 
     # Shift points to positive coordinates
-    mins = points.min(axis=0)
+    mins    = points.min(axis=0)
     shifted = points - mins
-    maxs = shifted.max(axis=0)
+    maxs    = shifted.max(axis=0)
     max_dim = max(maxs)
 
     # Guard against zero‐extent point clouds:
@@ -172,12 +171,11 @@ def fractal_dimension(points, box_sizes=None):
     counts = []
     for size in box_sizes:
         if size <= 0 or np.isnan(size):
-            # Skip invalid sizes
             continue
         # Determine the number of boxes in each dimension
-        bins = np.ceil(maxs / size).astype(int) + 1
+        bins         = np.ceil(maxs / size).astype(int) + 1
         # Compute box indices
-        indices = np.floor(shifted / size).astype(int)
+        indices      = np.floor(shifted / size).astype(int)
         # Unique boxes that contain at least one point
         unique_boxes = {tuple(idx) for idx in indices}
         counts.append(len(unique_boxes))
@@ -187,8 +185,8 @@ def fractal_dimension(points, box_sizes=None):
         return np.nan
 
     # Fit a line to the log-log plot of (1/box_size) vs counts
-    X = np.log(1.0 / np.array(box_sizes[:len(counts)])).reshape(-1, 1)
-    y = np.log(counts)
+    X   = np.log(1.0 / np.array(box_sizes[:len(counts)])).reshape(-1, 1)
+    y   = np.log(counts)
     reg = LinearRegression().fit(X, y)
     return reg.coef_[0]
 
@@ -200,44 +198,59 @@ def calculate_lacunarity(points, box_size):
     Here we build a grid covering the points and calculate the mean and variance
     of the count of points per box.
     """
-    points = np.asarray(points)
-    mins = points.min(axis=0)
-    shifted = points - mins
-    maxs = shifted.max(axis=0)
+    points    = np.asarray(points)
+    mins      = points.min(axis=0)
+    shifted   = points - mins
+    maxs      = shifted.max(axis=0)
     # Determine number of boxes per dimension
     num_boxes = np.ceil(maxs / box_size).astype(int) + 1
-    grid = np.zeros(num_boxes)
+    grid      = np.zeros(num_boxes)
     
     # For each point, increment its corresponding box
-    indices = np.floor(shifted / box_size).astype(int)
+    indices  = np.floor(shifted / box_size).astype(int)
     for idx in indices:
         grid[tuple(idx)] += 1
-    counts = grid.flatten()
+    counts   = grid.flatten()
     mean_val = counts.mean()
-    var_val = counts.var()
-    # A common lacunarity measure:
-    lac = var_val / (mean_val**2) + 1 if mean_val != 0 else np.nan
+    var_val  = counts.var()
+    
+    # Lacunarity computation
+    lac      = var_val / (mean_val**2) + 1 if mean_val != 0 else np.nan
     return lac
+
+
+
+
 
 def analyze_component_structure(G_comp):
     """
-    Calculates the number of loops and the number of nodes with abnormal degree (> 3)
-    in a connected component.
+    Calculates the number of loops, the number of nodes with abnormal degree (> 3),
+    the mean length of the loops, and the maximum loop length in a connected component.
 
     Parameters:
         G_comp: networkx.Graph
             A subgraph representing a connected component.
 
     Returns:
-        tuple: (num_loops, num_abnormal_degree_nodes)
+        tuple: (num_loops, num_abnormal_degree_nodes, mean_loop_length, max_loop_length)
     """
-    num_loops = len(nx.cycle_basis(G_comp))
-    abnormal_degree_nodes = [node for node, degree in G_comp.degree() if degree > 3]
+    cycles    = nx.cycle_basis(G_comp)
+    num_loops = len(cycles)
+
+    loop_lengths = [len(cycle) for cycle in cycles]
+
+    mean_loop_length = 0.0
+    max_loop_length  = 0
+
+    if num_loops > 0:
+        mean_loop_length = sum(loop_lengths) / num_loops
+        max_loop_length  = max(loop_lengths)
+
+    abnormal_degree_nodes     = [node for node, degree in G_comp.degree() if degree > 3]
     num_abnormal_degree_nodes = len(abnormal_degree_nodes)
-    return num_loops, num_abnormal_degree_nodes
+    
 
-
-
+    return num_loops, num_abnormal_degree_nodes, mean_loop_length, max_loop_length
 
 
 
@@ -292,8 +305,8 @@ def extract_segments_from_component_using_shortest_path(G_comp, distance_map):
     else:
         root3 = root1
 
-    roots = [root1, root2, root3]
-    segment_lists = []
+    roots               = [root1, root2, root3]
+    segment_lists       = []
     segment_counts_list = []
 
     # For each selected root, compute segments and counts
@@ -319,8 +332,8 @@ def extract_segments_from_component_using_shortest_path(G_comp, distance_map):
 
 
 def build_graph(skeleton):
-    G = nx.Graph()
-    shape = skeleton.shape
+    G      = nx.Graph()
+    shape  = skeleton.shape
     fibers = np.argwhere(skeleton)
     for v in fibers:
         coord = tuple(v)
@@ -348,7 +361,7 @@ def prune_graph(G):
             continue
 
         # Identify the heaviest edge in the triangle
-        max_edge = None
+        max_edge   = None
         max_weight = float('-inf')
         for i in range(3):
             u = cycle[i]
@@ -360,17 +373,16 @@ def prune_graph(G):
             elif G.has_edge(v, u):
                 w = G[v][u].get('weight', 0)
             else:
-                # no such edge—skip
                 continue
 
             if w > max_weight:
-                max_weight = w
-                max_edge = (u, v)
+                max_weight =  w
+                max_edge   = (u, v)
 
         # Remove the heaviest edge if it still exists
         if max_edge:
             u, v = max_edge
-            if G.has_edge(u, v):
+            if   G.has_edge(u, v):
                 G.remove_edge(u, v)
             elif G.has_edge(v, u):
                 G.remove_edge(v, u)
@@ -378,80 +390,119 @@ def prune_graph(G):
     return G
 
 
-def aggregate_segmentation_metrics(output_folder):
+def aggregate_segmentation_metrics(output_folder: str, top_k: int | None = None):
     """
-    Reads all_components_metrics.csv in the output_folder and computes
-    a global Whole_mask_metrics.csv with aggregated statistics.
+    Aggregates per-component metrics into whole-mask statistics and (optionally) into
+    Top-K-by-length statistics.
 
-    Outputs:
-      - total_length
-      - num_bifurcations
-      - volume
-      - num_loops
-      - num_abnormal_degree_nodes
-      - Aggregated tortuosity metrics (length-weighted averages)
-      - grand_total_length
-      - num_components
+    Parameters:
+    output_folder : str
+        Folder containing 'all_components_metrics.csv'. The results CSV
+        ('Whole_mask_metrics.csv') is written to the same folder.
+    top_k : int 
+        If given, also compute an aggregation on the K longest components and
+        prefix every Top-K field with 'Top{K}_'.
+
+    Notes
+    * For `fractal_dimension` and `lacunarity`, length-weighted means are produced.
+    * For tortuosity metrics a length-weighted mean are as well used.
     """
 
+    # 1) Load
     input_csv = os.path.join(output_folder, 'all_components_metrics.csv')
     if not os.path.exists(input_csv):
-        raise FileNotFoundError(f"{input_csv} not found")
+        raise FileNotFoundError(f"'{input_csv}' not found.")
 
     df = pd.read_csv(input_csv)
     if df.empty:
-        raise ValueError(f"{input_csv} is empty")
+        raise ValueError(f"'{input_csv}' is empty.")
 
-    num_components = len(df)
-
-    general_fields = [
+    # 2)Column groups
+    sum_fields = [
         'total_length', 'num_bifurcations', 'volume',
         'num_loops', 'num_abnormal_degree_nodes'
     ]
-    tort_fields = [
+
+    length_weight_avg_fields = [
         'Largest_endpoint_root_mean_curvature', 'Largest_endpoint_root_mean_square_curvature',
         '2nd_Largest_endpoint_root_mean_curvature', '2nd_Largest_endpoint_root_mean_square_curvature',
-        'Largest_bifurcation_root_mean_curvature', 'Largest_bifurcation_root_mean_square_curvature'
+        'Largest_bifurcation_root_mean_curvature', 'Largest_bifurcation_root_mean_square_curvature',
+        'fractal_dimension', 'lacunarity', 'avg_diameter'
     ]
 
-    result = {}
+    # 3)Function Used to aggregate
+    def _aggregate(sub_df: pd.DataFrame, prefix: str = '') -> dict:
+        res: dict[str, float | int] = {}
 
-    # Accumulate sums for general fields
-    for f in general_fields:
-        if f in df.columns:
-            result[f] = df[f].fillna(0).sum()
+        # a) Simple sums
+        for col in sum_fields:
+            res[prefix + col] = sub_df[col].fillna(0).sum() if col in sub_df else 0.0
+
+        # b) Length-weighted means
+        for col in length_weight_avg_fields:
+            if col not in sub_df:
+                res[prefix + col] = np.nan
+                continue
+            valid      = sub_df[[col, 'total_length']].dropna(subset=[col])
+            length_sum = valid['total_length'].sum()
+            res[prefix + col] = (
+                (valid[col] * valid['total_length']).sum() / length_sum
+                if length_sum > 0 else np.nan
+            )
+
+        # c) global mean / max loop length (properly weighted)
+        if {'mean_loop_length', 'num_loops'}.issubset(sub_df.columns):
+            tmp         = sub_df[['mean_loop_length', 'num_loops']].fillna(0)
+            loops_total = tmp['num_loops'].sum()
+            res[prefix + 'global_mean_loop_length'] = (
+                (tmp['mean_loop_length'] * tmp['num_loops']).sum() / loops_total
+                if loops_total > 0 else np.nan
+            )
         else:
-            result[f] = 0.0
+            res[prefix + 'global_mean_loop_length'] = np.nan
 
-    # Length-weighted averages for tortuosity fields
-    grand_total_length = df['total_length'].fillna(0).sum()
-    result['grand_total_length'] = grand_total_length
-    result['num_components'] = num_components
+        res[prefix + 'global_max_loop_length'] = (
+            sub_df['max_loop_length'].max() if 'max_loop_length' in sub_df else np.nan
+        )
 
-    for f in tort_fields:
-        if f in df.columns:
-            weighted_sum = (df[f] * df['total_length']).where(~df[f].isna(), 0).sum()
-            length_sum = df['total_length'].where(~df[f].isna(), 0).sum()
-            result[f] = weighted_sum / length_sum if length_sum > 0 else np.nan
-        else:
-            result[f] = np.nan
+        # d) Component count
+        res[prefix + 'num_components']     = len(sub_df)
 
-    out_df = pd.DataFrame([result])
+        return res
+
+    # 4) Aggregate whole mask
+    agg_all = _aggregate(df)
+
+    # 5) Aggregate Top-K (if requested)
+
+    if top_k is not None and top_k > 0:
+        df_topk  = df.nlargest(top_k, 'total_length')
+        agg_topk = _aggregate(df_topk, prefix=f'Top{top_k}_')
+
+        agg_topk.pop(f'Top{top_k}_num_components', None)
+
+        # Merge with global results
+        agg_all.update(agg_topk)
+
+    # 6) Save
+    out_df  = pd.DataFrame([agg_all])
     out_csv = os.path.join(output_folder, 'Whole_mask_metrics.csv')
     out_df.to_csv(out_csv, index=False)
+    print(f"Aggregated metrics written to {out_csv}")
 
 
 
-def save_results(results, output_folder, save_masks=True):
-    import os, numpy as np, pandas as pd, nibabel as nib
-
+def save_results(results, output_folder, save_conn_comp_masks=True, save_seg_masks=True):
+    
     os.makedirs(output_folder, exist_ok=True)
 
     # Keys to include from the top‐level general data
     general_keys = [
-        'total_length', 'num_bifurcations', 'bifurcation_density', 'volume',
+        'total_length', 'num_bifurcations', 'bifurcation_density',
+        'avg_diameter', 'volume',
         'fractal_dimension', 'lacunarity',
-        'num_loops', 'num_abnormal_degree_nodes'
+        'num_loops', 'num_abnormal_degree_nodes',
+        'mean_loop_length', 'max_loop_length'
     ]
 
     # Will accumulate one row per component
@@ -474,6 +525,7 @@ def save_results(results, output_folder, save_masks=True):
         # General metrics
         for k in general_keys:
             row[k] = data.get(k, np.nan)
+            
 
         # Aggregated tortuosity by root
         agg = data.get('aggregated_tortuosity_by_root', [])
@@ -492,15 +544,15 @@ def save_results(results, output_folder, save_masks=True):
 
         all_rows.append(row)
 
-        # — Component skeleton —
-        if 'reconstructed_conn_comp' in data:
+        # Component skeleton
+        if save_conn_comp_masks:
             nib.save(
                 data['reconstructed_conn_comp'],
                 os.path.join(comp_dir, f'Conn_comp_{comp_idx}_skeleton.nii.gz')
             )
         
 
-        # — Segments as before —
+        # Segments as before
         if 'segments_by_root' in data:
             segs_dir = os.path.join(comp_dir, 'Segments')
             os.makedirs(segs_dir, exist_ok=True)
@@ -514,7 +566,7 @@ def save_results(results, output_folder, save_masks=True):
                 os.makedirs(root_dir, exist_ok=True)
 
                 metrics_list = root_entry.get('segment_metrics', [])
-                masks_list   = root_entry.get('segment_masks', []) if save_masks else []
+                masks_list   = root_entry.get('segment_masks', []) if save_seg_masks else []
 
                 for seg_idx, sm in enumerate(metrics_list, start=1):
                     seg_dir = os.path.join(root_dir, f"Segment_{seg_idx}")
@@ -526,13 +578,13 @@ def save_results(results, output_folder, save_masks=True):
                     )
 
                     # per-segment mask
-                    if save_masks and seg_idx-1 < len(masks_list):
+                    if save_seg_masks and seg_idx-1 < len(masks_list):
                         nib.save(
                             masks_list[seg_idx-1],
                             os.path.join(seg_dir, 'Segment.nii.gz')
                         )
 
-    # After looping, write the unified CSV
+    # Final CSV
     df_all = pd.DataFrame(all_rows)
     df_all.to_csv(
         os.path.join(output_folder, 'all_components_metrics.csv'),
@@ -543,30 +595,32 @@ def save_results(results, output_folder, save_masks=True):
 
 
 
-def process(mask_path, min_size, selected_metrics, save_masks=True):
+def process(mask_path, selected_metrics,save_conn_comp_masks=True,save_seg_masks=True):
     """
     Build a `results` dict for each connected component, filling in:
       - top‐level general metrics (total_length, num_bifurcations, etc.)
       - 'reconstructed_conn_comp': the binary skeleton mask
       - 'segments_by_root': per‐segment metrics & masks
       - 'aggregated_tortuosity_by_root': weighted mean curvature & mean_square_curvature
-    Does NOT write any files—use save_results() to export.
     """
     # 1) Load & threshold
     ext = os.path.splitext(mask_path)[1].lower()
     if ext in ('.nii', '.gz'):
-        img = nib.load(mask_path)
-        arr = img.get_fdata() > 0
+        img            = nib.load(mask_path)
+        arr            = img.get_fdata() > 0
         affine, header = img.affine, img.header
     else:
-        loaded = np.load(mask_path)
-        arr = (next(iter(loaded.values())) if isinstance(loaded, dict) else loaded) > 0
+        loaded         = np.load(mask_path)
+        arr            = (next(iter(loaded.values())) if isinstance(loaded, dict) else loaded) > 0
         affine, header = np.eye(4), nib.Nifti1Header()
 
+
+
+
     # 2) Clean, skeletonize, dist map, graph
-    clean    = remove_small_objects(arr, min_size=min_size)
-    skel     = skeletonize(clean)
-    dist_map = distance_transform_edt(clean)
+    #clean    = remove_small_objects(arr, min_size=min_size)  -> Removed since it can erase information
+    skel     = skeletonize(arr)
+    dist_map = distance_transform_edt(arr)
     G        = prune_graph(build_graph(skel))
 
     # Flags for which metric groups to compute
@@ -575,7 +629,7 @@ def process(mask_path, min_size, selected_metrics, save_masks=True):
     need_fractal  = 'fractal_dimension' in selected_metrics
     need_lac      = 'lacunarity' in selected_metrics
     need_struct   = any(m in selected_metrics for m in [
-        'num_loops','num_abnormal_degree_nodes'])
+        'num_loops','num_abnormal_degree_nodes','mean_loop_lenght'])
     need_segments = any(m in selected_metrics for m in [
         'geodesic_length','avg_diameter',
         'spline_mean_curvature','spline_mean_square_curvature'
@@ -590,32 +644,32 @@ def process(mask_path, min_size, selected_metrics, save_masks=True):
 
         # Save the reconstructed component skeleton if desired
         
-        
-        vessel_mask = np.zeros_like(skel, dtype=bool)
-        for node in Gc.nodes:
-            r = dist_map[node]
-            if r > 0:
-                rr = int(np.ceil(r))
-                x0, y0, z0 = node
-                for dx in range(-rr, rr + 1):
-                    for dy in range(-rr, rr + 1):
-                        for dz in range(-rr, rr + 1):
-                            x, y, z = x0 + dx, y0 + dy, z0 + dz
-                            if (0 <= x < vessel_mask.shape[0] and
-                                0 <= y < vessel_mask.shape[1] and
-                                0 <= z < vessel_mask.shape[2]):
-                                if np.sqrt(dx**2 + dy**2 + dz**2) <= r:
-                                    vessel_mask[x, y, z] = True
-        data['reconstructed_conn_comp'] = nib.Nifti1Image(vessel_mask.astype(np.uint8), affine, header)
+        if save_conn_comp_masks:
+            vessel_mask = np.zeros_like(skel, dtype=bool)
+            for node in Gc.nodes:
+                r = dist_map[node]
+                if r > 0:
+                    rr = int(np.ceil(r))
+                    x0, y0, z0 = node
+                    for dx in range(-rr, rr + 1):
+                        for dy in range(-rr, rr + 1):
+                            for dz in range(-rr, rr + 1):
+                                x, y, z = x0 + dx, y0 + dy, z0 + dz
+                                if (0 <= x < vessel_mask.shape[0] and
+                                    0 <= y < vessel_mask.shape[1] and
+                                    0 <= z < vessel_mask.shape[2]):
+                                    if np.sqrt(dx**2 + dy**2 + dz**2) <= r:
+                                        vessel_mask[x, y, z] = True
+            data['reconstructed_conn_comp'] = nib.Nifti1Image(vessel_mask.astype(np.uint8), affine, header)
 
-        # — General metrics —
+        # General metrics
         if need_general:
             num_bif   = sum(1 for _,deg in Gc.degree() if deg>=3)
             total_len = sum(d['weight'] for *_,d in Gc.edges(data=True))
             if 'num_bifurcations'    in selected_metrics:
-                data['num_bifurcations'] = num_bif
+                data['num_bifurcations']    = num_bif
             if 'total_length'        in selected_metrics:
-                data['total_length'] = total_len
+                data['total_length']        = total_len
             if 'bifurcation_density' in selected_metrics:
                 data['bifurcation_density'] = num_bif/total_len if total_len>0 else np.nan
             if 'volume' in selected_metrics:
@@ -625,7 +679,7 @@ def process(mask_path, min_size, selected_metrics, save_masks=True):
                     vol += np.pi*(r_avg**2)*d['weight']
                 data['volume'] = vol
 
-        # — Fractal & Lacunarity —
+        # Fractal & Lacunarity
         coords = np.array(list(Gc.nodes()))
         if need_fractal and 'fractal_dimension' in selected_metrics:
             data['fractal_dimension'] = fractal_dimension(coords)
@@ -633,15 +687,33 @@ def process(mask_path, min_size, selected_metrics, save_masks=True):
             box_size = np.max(coords.max(axis=0)-coords.min(axis=0))/10 or 1
             data['lacunarity'] = calculate_lacunarity(coords, box_size)
 
-        # — Structural —
+        # Structural
         if need_struct:
-            nl, nab = analyze_component_structure(Gc)
+            nl, nab, mean_ll, max_ll,  = analyze_component_structure(Gc)
             if 'num_loops'                in selected_metrics:
-                data['num_loops']               = nl
+                data['num_loops']                 = nl
             if 'num_abnormal_degree_nodes' in selected_metrics:
                 data['num_abnormal_degree_nodes'] = nab
+            if 'mean_loop_length' in selected_metrics:
+                data['mean_loop_length']          = mean_ll
+            if 'max_loop_length' in selected_metrics:
+                data['max_loop_length']           = max_ll
+        
+        if 'avg_diameter' in selected_metrics:
+            if total_len > 0:
+                num = 0.0
+                for u, v, d in Gc.edges(data=True):
+                    r_avg = (dist_map[u] + dist_map[v]) / 2
+                    diam  = 2 * r_avg
+                    num  += diam * d['weight']
+                data['avg_diameter'] = num / total_len
+            else:
+                data['avg_diameter'] = np.nan
 
-        # — Segments & tortuosity & masks & aggregation —
+            
+                
+
+        # Segments & tortuosity & masks & aggregation
         if need_segments:
             seg_lists, seg_counts = extract_segments_from_component_using_shortest_path(Gc, dist_map)
 
@@ -682,7 +754,7 @@ def process(mask_path, min_size, selected_metrics, save_masks=True):
                         sum_curv2 += tort['spline_mean_square_curvature'] * L_geo
 
                     # segment mask
-                    if save_masks:
+                    if save_seg_masks:
                         mask_i = np.zeros_like(skel, dtype=bool)
                         for node in seg:
                             r = dist_map[tuple(node)]
@@ -715,7 +787,6 @@ def process(mask_path, min_size, selected_metrics, save_masks=True):
                 })
 
             data['segments_by_root'] = segments_info
-            # store aggregated tortuosity in the format save_results expects
             data['aggregated_tortuosity_by_root'] = [
                 {'mean_curvature':       agg_curv[i],
                  'mean_square_curvature':agg_curv2[i]}
@@ -727,29 +798,36 @@ def process(mask_path, min_size, selected_metrics, save_masks=True):
     return results
 
 
-if __name__=='__main__':
+if __name__ == '__main__':
 
-    p=argparse.ArgumentParser(description='Vessel analysis; disable segment masks with flag')
-    p.add_argument('input',help='Path to vessel mask (.nii/.nii.gz or .npy/.npz)')
-    p.add_argument('--min_size',type=int,default=32,help='Minimum cc size')
-    p.add_argument('--metrics',nargs='+',default=None,help='Metrics to compute')
-    p.add_argument('--output_folder',default='./VESSEL_METRICS',help='Save dir')
-    p.add_argument('--no_segment_masks',action='store_true',help='Disable segment mask construction/saving')
-    
-    args=p.parse_args()
+    p = argparse.ArgumentParser(description="Vessel's metrics computation")
+    p.add_argument('input', help='Path to vessel mask (.nii/.nii.gz or .npy/.npz)')
+    p.add_argument('--metrics', nargs='+', default=None, help='Metrics to compute')
+    p.add_argument('--output_folder', default='./VESSEL_METRICS', help='Save directory')
+    p.add_argument('--topK', type=int, default=None, help='Use only top-K longest components for additional aggregation (optional)')
+    p.add_argument('--no_conn_comp_masks', action='store_true', help='Disable connected component mask construction and saving')
+    p.add_argument('--no_segment_masks', action='store_true', help='Disable segment mask construction and saving')
+
+
+    args = p.parse_args()
+
     all_keys = [
         'total_length', 'num_bifurcations', 'bifurcation_density', 'volume',
         'fractal_dimension', 'lacunarity', 'geodesic_length', 'avg_diameter',
-        'spline_arc_length', 'spline_chord_length', 'spline_mean_curvature',
-        'spline_mean_square_curvature', 'spline_rms_curvature', 'arc_over_chord',
-        'fit_rmse', 'num_loops', 'num_abnormal_degree_nodes'
+        'spline_mean_curvature','spline_rms_curvature',
+        'num_loops', 'num_abnormal_degree_nodes',
+        'mean_loop_length', 'max_loop_length'
     ]
-    selected=set(args.metrics) if args.metrics else set(all_keys)
-    invalid=selected-set(all_keys)
-    if invalid: raise ValueError(f'Invalid metrics: {invalid}')
-    
-    save_masks=not args.no_segment_masks
-    results=process(args.input,args.min_size,selected,save_masks)
-    save_results(results,args.output_folder,save_masks)
-    aggregate_segmentation_metrics(os.path.abspath(args.output_folder))
+    selected = set(args.metrics) if args.metrics else set(all_keys)
+    invalid  = selected - set(all_keys)
+    if invalid:
+        raise ValueError(f'Invalid metrics: {invalid}')
+
+    save_seg_masks       = not args.no_segment_masks
+    save_conn_comp_masks = not args.no_conn_comp_masks
+
+    results = process(args.input, selected, save_conn_comp_masks, save_seg_masks)
+    save_results(results, args.output_folder, save_conn_comp_masks, save_seg_masks)
+    aggregate_segmentation_metrics(os.path.abspath(args.output_folder), top_k=args.topK)
+
     print(f'Results saved to: {os.path.abspath(args.output_folder)}')
