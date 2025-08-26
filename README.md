@@ -154,7 +154,6 @@ output_folder/
   $\Lambda = \frac{\mathrm{Var}(n)}{[\mathrm{Mean}(n)]^2} + 1.$
 
 ### 7. Segment Extraction & Tortuosity
-
 * **Roots**: selects three roots per component:
 
   1. Endpoint (degree=1) with largest diameter
@@ -165,26 +164,35 @@ output_folder/
 
 * **Segment metrics**:
 
-  * **geodesic\_length**: sum of consecutive node distances.
-  * **avg\_diameter**: average \$2r\$ along nodes.
+  * **geodesic_length**: sum of consecutive node distances.
+  * **avg_diameter**: average \$2r\$ along nodes.
   * **Spline tortuosity**:
 
     1. Fit cubic B-spline (`splprep`) to segment points.
     2. Reparameterize by arc length for uniform sampling.
     3. Compute first and second derivatives wrt arc length.
     4. Curvature: \$\kappa(s)=|x'(s)\times x''(s)|/|x'(s)|^3\$.
-    5. Optionally weight by node frequency.
+    5. **Weighted node frequency**: points appearing multiple times are down-weighted  
+       by their occurrence \(n(s)\):
+       
+       \[
+       \text{weighted curvature} = \frac{\kappa(s)}{n(s)}, \quad
+       \text{weighted squared curvature} = \frac{\kappa(s)^2}{n(s)^2}
+       \]
+       
+       This prevents overcounting in segments sharing nodes.
     6. Metrics:
 
-       * **spline\_arc\_length**: \$\int ds\$.
-       * **spline\_chord\_length**: straight distance endpoints.
-       * **arc\_over\_chord**: ratio of arc to chord.
-       * **spline\_mean\_curvature**: \$\int \kappa(s)/n(s) , ds\$.
-       * **spline\_mean\_square\_curvature**: \$\int \[\kappa(s)]^2/\[n(s)]^2 , ds\$.
-       * **spline\_rms\_curvature**: \$\sqrt{\frac{1}{L}\int \[\kappa(s)]^2/\[n(s)]^2 , ds}\$.
-       * **fit\_rmse**: RMSE between spline and original points.
+       * **spline_arc_length**: \$\int ds\$.
+       * **spline_chord_length**: straight distance endpoints.
+       * **arc_over_chord**: ratio of arc to chord.
+       * **spline_mean_curvature**: \( \int \kappa(s)/n(s) \, ds \)
+       * **spline_mean_square_curvature**: \( \int [\kappa(s)]^2 / [n(s)]^2 \, ds \)
+       * **spline_rms_curvature**: \( \sqrt{\frac{1}{L} \int [\kappa(s)]^2 / [n(s)]^2 \, ds} \)
+       * **fit_rmse**: RMSE between spline and original points.
 
 * **Aggregation**: computes length-weighted averages of curvature metrics for each root.
+
 
 ---
 
