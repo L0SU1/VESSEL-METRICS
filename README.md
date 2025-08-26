@@ -186,8 +186,8 @@ output_folder/
        * **spline_chord_length**: straight-line distance between endpoints
        * **arc_over_chord**: $\text{arc length} / \text{chord length}$
        * **spline_mean_curvature**: $\int {\kappa_w(s)}\, ds$
-       * **spline_mean_square_curvature**: $\int \frac{\kappa(s)^2}{n(s)^2} \, ds$
-       * **spline_rms_curvature**: $\sqrt{\frac{1}{L} \int \frac{\kappa(s)^2}{n(s)^2} \, ds}$
+       * **spline_mean_square_curvature**: $\int {\kappa_w^2(s)}\, ds$
+       * **spline_rms_curvature**: $\sqrt{\frac{1}{L} \int {\kappa_w^2(s)} \, ds}$
        * **fit_rmse**: RMSE between spline and original points
 
 * **Aggregation**: computes length-weighted averages of curvature metrics for each root.
