@@ -1,4 +1,4 @@
-# Vessel Analysis
+# Vessel Metrics
 
 `VESSEL_METRICS.py` is a command-line tool for analyzing 3D vessel masks.  
 It skeletonizes the mask, builds a graph representation, extracts vessel segments,  
